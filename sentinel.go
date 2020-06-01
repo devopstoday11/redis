@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"net"
 	"strings"
 	"sync"
@@ -304,6 +305,7 @@ func (c *sentinelFailover) Close() error {
 }
 
 func (c *sentinelFailover) closeSentinel() error {
+	fmt.Printf("k3a:debug: closeSentinel() closing 'c.pubsub'\n")
 	firstErr := c.pubsub.Close()
 	c.pubsub = nil
 
@@ -390,6 +392,7 @@ func (c *sentinelFailover) masterAddr(ctx context.Context) (string, error) {
 			TLSConfig: c.opt.TLSConfig,
 		})
 
+		fmt.Printf("k3a:debug: masterAddr() inside for loop iteration #%d, trying to call GetMasterAddrByName\n", i)
 		masterAddr, err := sentinel.GetMasterAddrByName(ctx, c.masterName).Result()
 		if err != nil {
 			internal.Logger.Printf("sentinel: GetMasterAddrByName master=%q failed: %s",
@@ -403,6 +406,7 @@ func (c *sentinelFailover) masterAddr(ctx context.Context) (string, error) {
 		c.setSentinel(ctx, sentinel)
 
 		addr := net.JoinHostPort(masterAddr[0], masterAddr[1])
+		fmt.Printf("k3a:debug: masterAddr() got %v\n", addr)
 		return addr, nil
 	}
 
@@ -420,6 +424,7 @@ func (c *sentinelFailover) getMasterAddr(ctx context.Context, sentinel *Sentinel
 }
 
 func (c *sentinelFailover) switchMaster(addr string) {
+	fmt.Printf("k3a:debug: switchMaster(%v) called\n", addr)
 	c.mu.RLock()
 	masterAddr := c._masterAddr
 	c.mu.RUnlock()
@@ -449,11 +454,13 @@ func (c *sentinelFailover) setSentinel(ctx context.Context, sentinel *SentinelCl
 	c.sentinel = sentinel
 	c.discoverSentinels(ctx)
 
+	fmt.Printf("k3a:debug: setSentinel() setting new 'c.pubsub', existing: %p\n", c.pubsub)
 	c.pubsub = sentinel.Subscribe(ctx, "+switch-master")
 	go c.listen(c.pubsub)
 }
 
 func (c *sentinelFailover) discoverSentinels(ctx context.Context) {
+	fmt.Printf("k3a:debug: discoverSentinels() started\n")
 	sentinels, err := c.sentinel.Sentinels(ctx, c.masterName).Result()
 	if err != nil {
 		internal.Logger.Printf("sentinel: Sentinels master=%q failed: %s", c.masterName, err)
@@ -473,10 +480,12 @@ func (c *sentinelFailover) discoverSentinels(ctx context.Context) {
 			}
 		}
 	}
+	fmt.Printf("k3a:debug: discoverSentinels() ended with %v\n", c.sentinelAddrs)
 }
 
 func (c *sentinelFailover) listen(pubsub *PubSub) {
 	ch := pubsub.Channel()
+	fmt.Printf("k3a:debug: listen() on pubsub %p began\n", pubsub)
 	for {
 		msg, ok := <-ch
 		if !ok {
@@ -493,6 +502,7 @@ func (c *sentinelFailover) listen(pubsub *PubSub) {
 			c.switchMaster(addr)
 		}
 	}
+	fmt.Printf("k3a:debug: listen() on pubsub %p ended\n", pubsub)
 }
 
 func contains(slice []string, str string) bool {
